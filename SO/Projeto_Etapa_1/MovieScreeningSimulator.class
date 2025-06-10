@@ -1,0 +1,316 @@
+// Source code is decompiled from a .class file using FernFlower decompiler.
+import java.awt.BorderLayout;
+import java.awt.Component;
+import java.awt.Dimension;
+import java.awt.Font;
+import java.awt.GridBagConstraints;
+import java.awt.GridBagLayout;
+import java.awt.Insets;
+import java.awt.image.BufferedImage;
+import java.io.File;
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.atomic.AtomicInteger;
+import javax.imageio.ImageIO;
+import javax.swing.BorderFactory;
+import javax.swing.JButton;
+import javax.swing.JFrame;
+import javax.swing.JLabel;
+import javax.swing.JOptionPane;
+import javax.swing.JPanel;
+import javax.swing.JScrollPane;
+import javax.swing.JSeparator;
+import javax.swing.JSplitPane;
+import javax.swing.JTextArea;
+import javax.swing.JTextField;
+import javax.swing.SwingUtilities;
+import javax.swing.text.DefaultCaret;
+
+public class MovieScreeningSimulator {
+   private int N_CAPACITY;
+   private int TE_MOVIE_DURATION_SECONDS;
+   private Semaphore semSeats;
+   private Semaphore semAuditoriumMutex;
+   private Semaphore semDemonstratorWakeUp;
+   private Semaphore semMovieStarted;
+   private Semaphore semMovieFinished;
+   private Semaphore semAllFansLeft;
+   private volatile int currentFanCountInAuditorium = 0;
+   private volatile int fansLeftThisSession = 0;
+   private AtomicInteger fanIdCounter = new AtomicInteger(1);
+   private final List<MovieScreeningSimulator$Fan> fanThreads = Collections.synchronizedList(new ArrayList());
+   private static boolean movieIsOn = false;
+   private Map<String, BufferedImage> characterImages;
+   private String[] characterColors = new String[]{"cor1", "cor2", "cor3", "cor4", "cor5", "cor6", "cor7", "cor8", "cor9", "cor10"};
+   private BufferedImage backgroundImage;
+   private JFrame frame;
+   private JTextField capacityField;
+   private JTextField movieTimeField;
+   private JTextField lunchTimeField;
+   private JButton startSimulationButton;
+   private JButton addFanButton;
+   private JLabel demonstratorStatusLabel;
+   private MovieScreeningSimulator$VisualizacaoPanel visualizacaoPanel;
+   private JTextArea logArea;
+   private volatile boolean simulationRunning = false;
+   private MovieScreeningSimulator$Demonstrator demonstratorThread;
+
+   public static void main(String[] var0) {
+      SwingUtilities.invokeLater(MovieScreeningSimulator::new);
+   }
+
+   public MovieScreeningSimulator() {
+      this.loadImages();
+      this.createAndShowGUI();
+   }
+
+   private void loadImages() {
+      this.characterImages = new HashMap();
+      String[] var1 = this.characterColors;
+      int var2 = var1.length;
+
+      for(int var3 = 0; var3 < var2; ++var3) {
+         String var4 = var1[var3];
+
+         try {
+            String var5 = "images/" + var4 + ".png";
+            File var6 = new File(var5);
+            if (!var6.exists()) {
+               System.err.println("ARQUIVO DE PERSONAGEM NÃO ENCONTRADO: " + var6.getAbsolutePath());
+               this.characterImages.put(var4, (Object)null);
+            } else {
+               BufferedImage var7 = ImageIO.read(var6);
+               if (var7 == null) {
+                  System.err.println("Não foi possível decodificar a imagem do personagem: " + var5);
+               }
+
+               this.characterImages.put(var4, var7);
+            }
+         } catch (IOException var9) {
+            System.err.println("Erro de I/O ao carregar imagem " + var4 + ".png: " + var9.getMessage());
+            this.characterImages.put(var4, (Object)null);
+         }
+      }
+
+      long var10 = this.characterImages.values().stream().filter(Objects::isNull).count();
+      String var11;
+      if (var10 <= 0L && this.characterImages.size() >= this.characterColors.length) {
+         System.out.println("Imagens de personagem carregadas: " + String.valueOf(this.characterImages.keySet()));
+      } else {
+         var11 = "Verifique a pasta 'images' e os nomes dos arquivos (ex: cor1.png ... cor10.png).";
+         JOptionPane.showMessageDialog((Component)null, "" + var10 + " imagem(ns) de personagem(ns) não puderam ser carregadas!\n" + var11 + "\nFãs podem ser invisíveis ou usar fallback.", "Erro ao Carregar Imagens de Personagem", 2);
+      }
+
+      try {
+         var11 = "images/background.png";
+         File var12 = new File(var11);
+         if (!var12.exists()) {
+            System.err.println("ARQUIVO DE FUNDO NÃO ENCONTRADO: " + var12.getAbsolutePath());
+            this.backgroundImage = null;
+         } else {
+            this.backgroundImage = ImageIO.read(var12);
+            if (this.backgroundImage == null) {
+               System.err.println("Não foi possível decodificar a imagem de fundo: " + var11);
+            } else {
+               System.out.println("Imagem de fundo carregada com sucesso.");
+            }
+         }
+      } catch (IOException var8) {
+         System.err.println("Erro de I/O ao carregar imagem de fundo: " + var8.getMessage());
+         this.backgroundImage = null;
+      }
+
+      if (this.backgroundImage == null && (this.characterImages.isEmpty() || this.characterImages.values().stream().anyMatch(Objects::isNull))) {
+         JOptionPane.showMessageDialog((Component)null, "Algumas imagens (personagens ou fundo) não puderam ser carregadas da pasta 'images'.\nVerifique o console para mais detalhes.\nA simulação pode não ter o visual esperado.", "Erro ao Carregar Imagens", 2);
+      }
+
+   }
+
+   private void createAndShowGUI() {
+      this.frame = new JFrame("Simulador de Exibição de Filme (Pelé)");
+      this.frame.setDefaultCloseOperation(3);
+      this.frame.setLayout(new BorderLayout());
+      JPanel var1 = new JPanel(new GridBagLayout());
+      var1.setBorder(BorderFactory.createTitledBorder("Configurações"));
+      GridBagConstraints var2 = new GridBagConstraints();
+      var2.insets = new Insets(5, 5, 5, 5);
+      var2.fill = 2;
+      var2.weightx = 1.0;
+      var2.gridx = 0;
+      var2.gridy = 0;
+      var1.add(new JLabel("Capacidade Auditório (N):"), var2);
+      this.capacityField = new JTextField("5", 5);
+      var2.gridx = 1;
+      var2.gridy = 0;
+      var1.add(this.capacityField, var2);
+      var2.gridx = 0;
+      var2.gridy = 1;
+      var1.add(new JLabel("Tempo Filme (Te segs):"), var2);
+      this.movieTimeField = new JTextField("10", 5);
+      var2.gridx = 1;
+      var2.gridy = 1;
+      var1.add(this.movieTimeField, var2);
+      this.startSimulationButton = new JButton("Iniciar Simulação");
+      var2.gridx = 0;
+      var2.gridy = 2;
+      var2.gridwidth = 2;
+      var1.add(this.startSimulationButton, var2);
+      var2.gridy = 3;
+      var1.add(new JSeparator(), var2);
+      var2.gridx = 0;
+      var2.gridy = 4;
+      var2.gridwidth = 1;
+      var1.add(new JLabel("Tempo Lanche Fã (Tl segs):"), var2);
+      this.lunchTimeField = new JTextField("8", 5);
+      var2.gridx = 1;
+      var2.gridy = 4;
+      var1.add(this.lunchTimeField, var2);
+      this.addFanButton = new JButton("Adicionar Fã");
+      this.addFanButton.setEnabled(false);
+      var2.gridx = 0;
+      var2.gridy = 5;
+      var2.gridwidth = 2;
+      var1.add(this.addFanButton, var2);
+      this.logArea = new JTextArea(10, 25);
+      this.logArea.setEditable(false);
+      this.logArea.setFont(new Font("Monospaced", 0, 12));
+      DefaultCaret var3 = (DefaultCaret)this.logArea.getCaret();
+      var3.setUpdatePolicy(2);
+      JScrollPane var4 = new JScrollPane(this.logArea);
+      var4.setBorder(BorderFactory.createTitledBorder("Log de Eventos"));
+      var4.setPreferredSize(new Dimension(280, 200));
+      var1.setPreferredSize(new Dimension(280, 220));
+      JSplitPane var5 = new JSplitPane(0, var1, var4);
+      var5.setDividerLocation(230);
+      var5.setResizeWeight(0.4);
+      JPanel var6 = new JPanel(new BorderLayout(5, 5));
+      this.demonstratorStatusLabel = new JLabel("Demonstrador: Ocioso", 0);
+      this.demonstratorStatusLabel.setBorder(BorderFactory.createEtchedBorder());
+      var6.add(this.demonstratorStatusLabel, "North");
+      this.visualizacaoPanel = new MovieScreeningSimulator$VisualizacaoPanel(this, this.backgroundImage);
+      var6.add(this.visualizacaoPanel, "Center");
+      JSplitPane var7 = new JSplitPane(1, var5, var6);
+      var7.setDividerLocation(300);
+      var7.setResizeWeight(0.3);
+      this.frame.add(var7, "Center");
+      this.startSimulationButton.addActionListener((var1x) -> {
+         this.startSimulation();
+      });
+      this.addFanButton.addActionListener((var1x) -> {
+         this.createFan();
+      });
+      this.frame.setExtendedState(6);
+      this.frame.setLocationRelativeTo((Component)null);
+      this.frame.setVisible(true);
+   }
+
+   private void log(String var1) {
+      SwingUtilities.invokeLater(() -> {
+         if (this.logArea != null) {
+            this.logArea.append(var1 + "\n");
+         }
+
+      });
+      System.out.println(var1);
+   }
+
+   private void updateDemonstratorStatus(String var1) {
+      SwingUtilities.invokeLater(() -> {
+         if (this.demonstratorStatusLabel != null) {
+            this.demonstratorStatusLabel.setText("Demonstrador: " + var1);
+         }
+
+         if (this.visualizacaoPanel != null) {
+            this.visualizacaoPanel.repaint();
+         }
+
+      });
+   }
+
+   private void startSimulation() {
+      if (this.simulationRunning) {
+         this.log("Simulação já está em execução.");
+      } else {
+         try {
+            this.N_CAPACITY = Integer.parseInt(this.capacityField.getText().trim());
+            this.TE_MOVIE_DURATION_SECONDS = Integer.parseInt(this.movieTimeField.getText().trim());
+            if (this.N_CAPACITY <= 0 || this.TE_MOVIE_DURATION_SECONDS <= 0) {
+               JOptionPane.showMessageDialog(this.frame, "N e Te devem ser positivos.", "Erro", 0);
+               return;
+            }
+         } catch (NumberFormatException var4) {
+            JOptionPane.showMessageDialog(this.frame, "Valores inválidos para N ou Te.", "Erro", 0);
+            return;
+         }
+
+         this.semSeats = new Semaphore(this.N_CAPACITY, true);
+         this.semAuditoriumMutex = new Semaphore(1, true);
+         this.semDemonstratorWakeUp = new Semaphore(0, true);
+         this.semMovieStarted = new Semaphore(0, true);
+         this.semAllFansLeft = new Semaphore(0, true);
+         this.currentFanCountInAuditorium = 0;
+         this.fansLeftThisSession = 0;
+         this.fanIdCounter.set(1);
+         synchronized(this.fanThreads) {
+            this.fanThreads.clear();
+         }
+
+         if (this.visualizacaoPanel != null) {
+            this.visualizacaoPanel.clearFans();
+         }
+
+         if (this.logArea != null) {
+            this.logArea.setText("");
+         }
+
+         this.simulationRunning = true;
+         this.startSimulationButton.setEnabled(false);
+         this.addFanButton.setEnabled(true);
+         this.capacityField.setEnabled(false);
+         this.movieTimeField.setEnabled(false);
+         this.log("==== SIMULAÇÃO INICIADA ====");
+         this.log("Capacidade do Auditório (N): " + this.N_CAPACITY);
+         this.log("Tempo do Filme (Te): " + this.TE_MOVIE_DURATION_SECONDS + "s");
+         this.demonstratorThread = new MovieScreeningSimulator$Demonstrator(this);
+         this.demonstratorThread.start();
+         this.updateDemonstratorStatus("Aguardando Lotação (0/" + this.N_CAPACITY + ")");
+      }
+   }
+
+   private void createFan() {
+      if (!this.simulationRunning) {
+         JOptionPane.showMessageDialog(this.frame, "Inicie a simulação primeiro.", "Aviso", 2);
+      } else {
+         int var1;
+         try {
+            var1 = Integer.parseInt(this.lunchTimeField.getText().trim());
+            if (var1 <= 0) {
+               JOptionPane.showMessageDialog(this.frame, "Tempo de lanche (Tl) deve ser positivo.", "Erro", 0);
+               return;
+            }
+         } catch (NumberFormatException var6) {
+            JOptionPane.showMessageDialog(this.frame, "Valor inválido para Tl.", "Erro", 0);
+            return;
+         }
+
+         String var2 = "Fã-" + this.fanIdCounter.get();
+         String var3 = this.characterColors[(this.fanIdCounter.get() - 1) % this.characterColors.length];
+         BufferedImage var4 = (BufferedImage)this.characterImages.get(var3);
+         MovieScreeningSimulator$Fan var5 = new MovieScreeningSimulator$Fan(this, var2, var1, var4);
+         this.fanIdCounter.getAndIncrement();
+         this.fanThreads.add(var5);
+         if (this.visualizacaoPanel != null) {
+            this.visualizacaoPanel.addFanSprite(var5);
+         }
+
+         var5.start();
+         this.log("Fã " + var2 + " (imagem: " + var3 + ".png) criado (Tl=" + var1 + "s).");
+      }
+   }
+}

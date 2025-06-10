@@ -1,0 +1,177 @@
+// Source code is decompiled from a .class file using FernFlower decompiler.
+import java.awt.image.BufferedImage;
+import java.util.Objects;
+import javax.swing.SwingUtilities;
+
+class MovieScreeningSimulator$Fan extends Thread {
+   private final String fanId;
+   private final int tlLunchTimeSeconds;
+   public BufferedImage image;
+   public int x;
+   public int y;
+   public int targetX;
+   public int targetY;
+   private String currentStatusForVisuals;
+   private boolean moving;
+   private boolean visible;
+
+   public MovieScreeningSimulator$Fan(final MovieScreeningSimulator var1, String var2, int var3, BufferedImage var4) {
+      this.this$0 = var1;
+      this.visible = true;
+      this.fanId = var2;
+      this.tlLunchTimeSeconds = var3;
+      this.image = var4;
+      this.currentStatusForVisuals = "Na fila";
+      this.x = 275;
+      this.y = 220;
+      this.targetX = this.x;
+      this.targetY = this.y;
+      this.moving = false;
+   }
+
+   private void setVisualStatus(String var1) {
+      this.currentStatusForVisuals = var1;
+      if (this.this$0.visualizacaoPanel != null) {
+         this.this$0.visualizacaoPanel.setFanTargetPosition(this);
+         this.this$0.visualizacaoPanel.repaint();
+      }
+
+   }
+
+   public String getVisualStatus() {
+      return this.currentStatusForVisuals;
+   }
+
+   public String getFanId() {
+      return this.fanId;
+   }
+
+   public boolean isMoving() {
+      return this.moving;
+   }
+
+   public void setMoving(boolean var1) {
+      this.moving = var1;
+   }
+
+   public void run() {
+      this.this$0.log(this.fanId + ": Thread iniciada (Lanche=" + this.tlLunchTimeSeconds + "s). Imagem: " + (this.image != null ? "Carregada" : "NÃO CARREGADA"));
+
+      while(true) {
+         boolean var14 = false;
+
+         label211: {
+            try {
+               var14 = true;
+               if (this.this$0.simulationRunning) {
+                  this.setVisualStatus("Na fila");
+                  this.this$0.log(this.fanId + ": Na fila para entrar.");
+                  this.this$0.semSeats.acquire();
+                  this.this$0.log(this.fanId + ": Conseguiu permissão de 'assento geral'. Tentando entrar no auditório.");
+                  this.this$0.semAuditoriumMutex.acquire();
+                  ++this.this$0.currentFanCountInAuditorium;
+                  this.this$0.log(this.fanId + ": Entrou no auditório. Total: " + this.this$0.currentFanCountInAuditorium + "/" + this.this$0.N_CAPACITY);
+                  MovieScreeningSimulator$VisualizacaoPanel var10000;
+                  if (this.this$0.visualizacaoPanel != null) {
+                     var10000 = this.this$0.visualizacaoPanel;
+                     Objects.requireNonNull(var10000);
+                     SwingUtilities.invokeLater(var10000::repaint);
+                  }
+
+                  this.setVisualStatus("Aguardando filme");
+                  if (this.this$0.currentFanCountInAuditorium == this.this$0.N_CAPACITY) {
+                     this.this$0.log(this.fanId + ": Eu sou o " + this.this$0.N_CAPACITY + "º fã! Avisando o demonstrador.");
+                     this.this$0.semDemonstratorWakeUp.release();
+                  }
+
+                  this.this$0.semAuditoriumMutex.release();
+                  this.this$0.log(this.fanId + ": Esperando o filme começar...");
+                  this.this$0.semMovieStarted.acquire();
+                  this.setVisualStatus("Assistindo filme");
+
+                  while(MovieScreeningSimulator.movieIsOn) {
+                     this.this$0.log(this.fanId + ": Filme começou! Assistindo...");
+                  }
+
+                  this.this$0.semAuditoriumMutex.acquire();
+                  --this.this$0.currentFanCountInAuditorium;
+                  ++this.this$0.fansLeftThisSession;
+                  if (this.this$0.visualizacaoPanel != null) {
+                     var10000 = this.this$0.visualizacaoPanel;
+                     Objects.requireNonNull(var10000);
+                     SwingUtilities.invokeLater(var10000::repaint);
+                  }
+
+                  this.setVisualStatus("Saindo para lanchar");
+                  this.this$0.log(this.fanId + ": Filme acabou. Saiu do auditório. (" + this.this$0.fansLeftThisSession + "/" + this.this$0.N_CAPACITY + " saíram desta sessão)");
+                  if (this.this$0.fansLeftThisSession == this.this$0.N_CAPACITY) {
+                     this.this$0.log(this.fanId + ": Eu sou o último a sair desta sessão (" + this.this$0.N_CAPACITY + "/" + this.this$0.N_CAPACITY + "). Avisando o demonstrador que esvaziou.");
+                     this.this$0.semAllFansLeft.release();
+                     this.this$0.fansLeftThisSession = 0;
+                  }
+
+                  this.this$0.semAuditoriumMutex.release();
+                  this.setVisualStatus("Lanchando");
+                  long var1 = System.currentTimeMillis();
+
+                  while(System.currentTimeMillis() - var1 < (long)this.tlLunchTimeSeconds * 1000L) {
+                     this.this$0.log(this.fanId + ": Lanchando por " + this.tlLunchTimeSeconds + "s...");
+                  }
+
+                  this.this$0.log(this.fanId + ": Terminou de lanchar. Devolvendo 'assento geral' e voltando para a fila.");
+                  this.this$0.semSeats.release();
+                  continue;
+               }
+
+               var14 = false;
+            } catch (InterruptedException var18) {
+               this.this$0.log(this.fanId + ": Thread interrompida.");
+               Thread.currentThread().interrupt();
+               var14 = false;
+               break label211;
+            } finally {
+               if (var14) {
+                  this.setVisualStatus("Encerrado");
+                  this.this$0.log(this.fanId + ": Thread finalizada.");
+                  if (this.this$0.visualizacaoPanel != null) {
+                     SwingUtilities.invokeLater(() -> {
+                        thisx.this$0.visualizacaoPanel.removeFanSprite(this);
+                     });
+                  }
+
+                  synchronized(this.this$0.fanThreads) {
+                     this.this$0.fanThreads.remove(this);
+                  }
+               }
+            }
+
+            this.setVisualStatus("Encerrado");
+            this.this$0.log(this.fanId + ": Thread finalizada.");
+            if (this.this$0.visualizacaoPanel != null) {
+               SwingUtilities.invokeLater(() -> {
+                  thisx.this$0.visualizacaoPanel.removeFanSprite(this);
+               });
+            }
+
+            synchronized(this.this$0.fanThreads) {
+               this.this$0.fanThreads.remove(this);
+               break;
+            }
+         }
+
+         this.setVisualStatus("Encerrado");
+         this.this$0.log(this.fanId + ": Thread finalizada.");
+         if (this.this$0.visualizacaoPanel != null) {
+            SwingUtilities.invokeLater(() -> {
+               thisx.this$0.visualizacaoPanel.removeFanSprite(this);
+            });
+         }
+
+         synchronized(this.this$0.fanThreads) {
+            this.this$0.fanThreads.remove(this);
+            break;
+         }
+      }
+
+   }
+}
