@@ -546,7 +546,7 @@ public class MovieScreeningSimulator {
 
         // Coordenadas das Áreas
         public static final int AREA_AUDITORIO_X = 70;
-        public static final int AREA_LANCHONETE_X = 500; // Ajuste para o início da área da lanchonete
+        public static final int AREA_LANCHONETE_X = 780; // Ajuste para o início da área da lanchonete
         public static final int AREA_FILA_X = 275;
         public static final int AREA_Y_START_TOP = 70;
         private static final int AREA_Y_BOTTOM = 320;
@@ -673,7 +673,7 @@ public class MovieScreeningSimulator {
                     fan.visible = true;
                     break;
                 case "Assistindo filme":
-                    fan.visible = false;
+                    fan.visible = true;
                     fan.targetX = AREA_AUDITORIO_X;
                     fan.targetY = AREA_Y_START_TOP;
                     break;
